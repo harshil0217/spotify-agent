@@ -1,7 +1,8 @@
 #import libraries
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from langchain_mcp_adapters.tools import load_mcp_tools, MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools 
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 import asyncio
@@ -10,6 +11,7 @@ import os
 from dotenv import load_dotenv
 import requests  # Add this for API key validation
 import warnings
+import json
 
 # Load environment variables
 load_dotenv()
@@ -66,24 +68,19 @@ client = MultiServerMCPClient(
 warnings.filterwarnings("ignore", category=ResourceWarning)
     
 async def run_agent():
-    async with stdio_client(brave_server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            # Initialize client session
-            await session.initialize()
-            
-            # Get tools
-            tools = await load_mcp_tools(session)
-            
-            # Create agent
-            agent = create_react_agent(
-                model=model,
-                tools=tools,
-            )
-            
-            # Invoke agent
-            agent_response = await agent.ainvoke({"messages": "Find 10 songs that are niche and fit the vibe of tropical beach"})
-            
-            return agent_response
+    #get tools from the MCP client
+    tools = await client.get_tools()
+   
+    # Create agent
+    agent = create_react_agent(
+        model=model,
+        tools=tools,
+    )
+    
+    # Invoke agent
+    agent_response = await agent.ainvoke({"messages": "Find only one article about the 3 best restaurants in New York City, scrape the contents, and tell me what those restaraunts are alongside a quick summary of them."}) 
+    
+    return agent_response
 
 # Run the function
 if __name__ == "__main__":
@@ -106,9 +103,14 @@ external API calls it makes (e.g., Brave Search).
 
     loop = asyncio.get_event_loop()
     try:
-        response = loop.run_until_complete(asyncio.wait_for(run_agent(), timeout=30))
+        response = loop.run_until_complete(asyncio.wait_for(run_agent(), timeout=120))
     except TimeoutError:
         response = "The operation timed out."
     except Exception as e:
         response = f"An error occurred: {e}"
-    print(response)
+
+    # Pretty-print JSON if possible
+    if isinstance(response, dict) or isinstance(response, list):
+        print(json.dumps(response, indent=2, ensure_ascii=False))
+    else:
+        print(response)
