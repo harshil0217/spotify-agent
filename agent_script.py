@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import requests  # Add this for API key validation
 import warnings
 import json
+from pprint import pprint
 
 # Load environment variables
 load_dotenv()
@@ -78,7 +79,7 @@ async def run_agent():
     )
     
     # Invoke agent
-    agent_response = await agent.ainvoke({"messages": "Find only one article about the 3 best restaurants in New York City, scrape the contents, and tell me what those restaraunts are alongside a quick summary of them."}) 
+    agent_response = await agent.ainvoke({"messages": "Find only one article about the 3 best restaurants in New York City, read the contents but dont output, and tell me what those restaraunts are alongside a quick summary of them."}) 
     
     return agent_response
 
@@ -109,8 +110,4 @@ external API calls it makes (e.g., Brave Search).
     except Exception as e:
         response = f"An error occurred: {e}"
 
-    # Pretty-print JSON if possible
-    if isinstance(response, dict) or isinstance(response, list):
-        print(json.dumps(response, indent=2, ensure_ascii=False))
-    else:
-        print(response)
+    pprint(response)
