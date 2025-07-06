@@ -13,6 +13,8 @@ import requests  # Add this for API key validation
 import warnings
 import json
 from pprint import pprint
+import traceback
+
 
 # Load environment variables
 load_dotenv()
@@ -53,7 +55,7 @@ client = MultiServerMCPClient(
             "env": {
                 "FIRECRAWL_API_KEY": firecrawl_key
             },
-            "transport": "stdio",
+            "transport": "stdio"
             
         },
         "spotify": {
@@ -68,6 +70,7 @@ client = MultiServerMCPClient(
                 "SPOTIFY_CLIENT_SECRET": os.getenv("SPOTIFY_CLIENT_SECRET"),
                 "SPOTIFY_REDIRECT_URI": os.getenv("SPOTIFY_REDIRECT_URI")
             },
+            "transport": "stdio"
                    
         }
     }     
@@ -85,7 +88,7 @@ async def run_agent():
     )
     
     # Invoke agent
-    agent_response = await agent.ainvoke({"messages": "Find only one article about the 3 best restaurants in New York City, read the contents but dont output, and tell me what those restaraunts are alongside a quick summary of them."}) 
+    agent_response = await agent.ainvoke({"messages": "Find 10 songs about the ocean and create a playlist with them."}) 
     
     return agent_response
 
@@ -114,6 +117,7 @@ external API calls it makes (e.g., Brave Search).
     except TimeoutError:
         response = "The operation timed out."
     except Exception as e:
+        traceback.print_exc()
         response = f"An error occurred: {e}"
 
     pprint(response)

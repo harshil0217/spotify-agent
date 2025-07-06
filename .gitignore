@@ -11,3 +11,5 @@ wheels/
 
 # Secrets
 .env
+
+useful_urls.md
