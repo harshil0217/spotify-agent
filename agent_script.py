@@ -37,23 +37,16 @@ if not firecrawl_key:
 # Initialize the model
 model = ChatOpenAI(model="gpt-4o")
 
+'''
 brave_server_params = StdioServerParameters(
     command='npx',
     args=['-y', '@modelcontextprotocol/server-brave-search'],
     env={
         "BRAVE_API_KEY": brave_key
     })
-
+'''
 client = MultiServerMCPClient(
     {
-        "brave": {
-            "command": 'npx',
-            "args": ['-y', '@modelcontextprotocol/server-brave-search'],
-            "env": {
-                "BRAVE_API_KEY": brave_key
-            },
-            "transport": "stdio",
-        },
         "firecrawl" : {
             "command": 'npx',
             "args": ['-y', 'firecrawl-mcp'],
@@ -62,10 +55,23 @@ client = MultiServerMCPClient(
             },
             "transport": "stdio",
             
+        },
+        "spotify": {
+            "command": "uvx",
+            "args": [
+                "--form",
+                "git+https://github.com/varunneal/spotify-mcp",
+                "spotify-mcp"
+            ],
+            "env": {
+                "SPOTIFY_CLIENT_ID": os.getenv("SPOTIFY_CLIENT_ID"),
+                "SPOTIFY_CLIENT_SECRET": os.getenv("SPOTIFY_CLIENT_SECRET"),
+                "SPOTIFY_REDIRECT_URI": os.getenv("SPOTIFY_REDIRECT_URI")
+            },
+                   
         }
-    }
+    }     
 )
-
 warnings.filterwarnings("ignore", category=ResourceWarning)
     
 async def run_agent():
