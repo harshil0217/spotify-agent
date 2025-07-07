@@ -61,7 +61,7 @@ client = MultiServerMCPClient(
         "spotify": {
             "command": "uvx",
             "args": [
-                "--form",
+                "--from",
                 "git+https://github.com/varunneal/spotify-mcp",
                 "spotify-mcp"
             ],
@@ -92,8 +92,34 @@ async def run_agent():
     
     return agent_response
 
+# Test Spotify API access
+def test_spotify_api():
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI")
+
+    # Step 1: Get access token using Client Credentials Flow
+    auth_response = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data={"grant_type": "client_credentials"},
+        auth=(client_id, client_secret),
+    )
+    if auth_response.status_code != 200:
+        print("Failed to get Spotify access token:", auth_response.text)
+        return False
+
+    access_token = auth_response.json().get("access_token")
+    if not access_token:
+        print("No access token received from Spotify.")
+        return False
+    
+    return True
+
 # Run the function
 if __name__ == "__main__":
+    if not test_spotify_api():
+        print("Spotify API test failed. Check your credentials.")
+        exit(1)
     """
 Using asyncio.get_event_loop() with run_until_complete instead of asyncio.run()
 because stdio_client launches a persistent MCP server subprocess via npx.
