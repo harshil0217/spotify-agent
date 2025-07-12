@@ -124,6 +124,18 @@ async def create_graph(firecrawl_session, spotify_session):
     return graph
 
 
+async def main():
+    config = {"configurable": {"thread_id": 1234}}
+    async with client.session("firecrawl") as firecrawl_session, client.session("spotify") as spotify_session:
+        agent = await create_graph(firecrawl_session, spotify_session)
+        while True:
+            message = input("User: ")
+            response = await agent.ainvoke({"messages": message}, config=config)
+            print("AI: "+response["messages"][-1].content)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
 '''
 warnings.filterwarnings("ignore", category=ResourceWarning)
     
