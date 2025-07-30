@@ -14,6 +14,7 @@ from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import tools_condition, ToolNode
+from langgraph.graph import MessagesState
 import asyncio
 from asyncio.exceptions import TimeoutError
 import os
@@ -58,15 +59,23 @@ brave_server_params = StdioServerParameters(
 '''
 client = MultiServerMCPClient(
     {
-        "firecrawl" : {
-            "command": 'npx',
-            "args": ['-y', 'firecrawl-mcp'],
-            "env": {
-                "FIRECRAWL_API_KEY": firecrawl_key
-            },
-            "transport": "streamable-http"
-            
-        },
+        # "firecrawl" : {
+        #     "command": 'npx',
+        #     "args": ['-y', 'firecrawl-mcp'],
+        #     "env": {
+        #         "FIRECRAWL_API_KEY": firecrawl_key
+        #     },
+        #     "transport": "stdio"
+        # },
+        
+        # "brave-search": {
+        #     "command": 'npx',
+        #     "args": ['-y', 'brave-search-mcp'],
+        #     "env": {
+        #         "BRAVE_API_KEY": brave_key
+        #     },
+        #     "transport": "stdio"
+        # },
         "spotify": {
             "command": "uvx",
             "args": [
@@ -79,27 +88,91 @@ client = MultiServerMCPClient(
                 "SPOTIFY_CLIENT_SECRET": os.getenv("SPOTIFY_CLIENT_SECRET"),
                 "SPOTIFY_REDIRECT_URI": os.getenv("SPOTIFY_REDIRECT_URI")
             },
-            "transport": "streamable-http"
-                   
+            "transport": "stdio"
         }
     }     
 )
 
-async def create_graph(firecrawl_session, spotify_session):
+async def create_graph():
+    
+    #define llm
+    llm = ChatOpenAI(model="gpt-4o")
+    
+    #load in tools from the MCP client
+    tools = await client.get_tools()
+    
+    #bind tools
+    
+    llm_with_tools = llm.bind_tools(tools)
+    
+    #define system prompt
+    system_msg = "You are a helpful assistant that can use various tools to answer questions.  \
+                   You can search the web, access a database, and interact with Spotify to find music"
+                   
+    
+    #define assistant
+    def assistant(state: MessagesState):
+        return {"messages": [llm_with_tools.invoke( system_msg + state["messages"])]}
+    
+    # Graph
+    builder = StateGraph(MessagesState) 
+    
+    # Define nodes: these do the work
+    builder.add_node("assistant", assistant)
+    builder.add_node("tools", ToolNode(tools))
+    
+    # Define nodes: these do the work
+    builder.add_node("assistant", assistant)
+    builder.add_node("tools", ToolNode(tools))
+
+    # Define edges: these determine the control flow
+    builder.add_edge(START, "assistant")
+    builder.add_conditional_edges(
+        "assistant",
+        # If the latest message (result) from assistant is a tool call -> tools_condition routes to tools
+        # If the latest message (result) from assistant is a not a tool call -> tools_condition routes to END
+        tools_condition,
+    )
+    builder.add_edge("tools", "assistant")
+    graph = builder.compile()
+    
+    return graph
+
+
+async def main():
+    config = {"configurable": {"thread_id":1234}}
+    
+    agent = await create_graph()
+    
+    while True:
+        message = input("User: ")
+        response = await agent.ainvoke({"messages": [message]}, config=config)
+        print("Assistant:", response["messages"][-1].content)
+
+if __name__ == "__main__":
+    # Run the main function in an event loop
+    asyncio.run(main())
+    
+    
+'''
+
+async def create_graph(firecrawl_session):  # Removed spotify_session
     llm = ChatOpenAI(model="gpt-4o")
     
     firecrawl_tools = await load_mcp_tools(firecrawl_session)
-    spotify_tools = await load_mcp_tools(spotify_session)
     
-    tools = firecrawl_tools + spotify_tools
+    # spotify_tools = await load_mcp_tools(spotify_session)
+    
+    tools = firecrawl_tools  # + spotify_tools
     llm_with_tools = llm.bind_tools(tools)
     
-    firecrawl_system_prompt = await load_mcp_prompt(server_name="firecrawl", prompt_name="system_prompt")
-    spotify_system_prompt = await load_mcp_prompt(server_name="spotify", prompt_name="system_prompt")
-    system_prompt = firecrawl_system_prompt + "\n\n" + spotify_system_prompt
+    #firecrawl_system_prompt = await load_mcp_prompt(firecrawl_session, "system_prompt")
+    # spotify_system_prompt = await load_mcp_prompt("spotify", "system_prompt")
+    system_prompt = "You are a helpful assistant that can use various tools to answer questions.  \
+                   You can search the web, access a database, and interact with Spotify to find music"
     
     prompt_template = ChatPromptTemplate.from_messages([
-        ("system", system_prompt[0].content),
+        ("system", system_prompt),
         MessagesPlaceholder("messages")
     ])
     
@@ -124,18 +197,10 @@ async def create_graph(firecrawl_session, spotify_session):
     return graph
 
 
-async def main():
-    config = {"configurable": {"thread_id": 1234}}
-    async with client.session("firecrawl") as firecrawl_session, client.session("spotify") as spotify_session:
-        agent = await create_graph(firecrawl_session, spotify_session)
-        while True:
-            message = input("User: ")
-            response = await agent.ainvoke({"messages": message}, config=config)
-            print("AI: "+response["messages"][-1].content)
 
-if __name__ == "__main__":
-    asyncio.run(main())
 
+
+'''
 '''
 warnings.filterwarnings("ignore", category=ResourceWarning)
     
@@ -209,4 +274,8 @@ external API calls it makes (e.g., Brave Search).
         response = f"An error occurred: {e}"
 
     pprint(response)
+
 '''
+
+# TO DO: add brave search api, add logic that tells langgraph to go article by article, scrape with firecrawl article by article, and pass that to the chat node,
+# research adding chunking node
