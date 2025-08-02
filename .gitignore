@@ -11,5 +11,6 @@ wheels/
 
 # Secrets
 .env
+mcp_config.json
 
 useful_urls.md

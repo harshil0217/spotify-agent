@@ -1,29 +1,14 @@
 #import libraries
-from typing import List
-from typing import Annotated
-from typing_extensions import TypedDict
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from langchain_mcp_adapters.tools import load_mcp_tools 
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.prompts import load_mcp_prompt
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
-from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import tools_condition, ToolNode
 from langgraph.graph import MessagesState
 import asyncio
-from asyncio.exceptions import TimeoutError
 import os
 from dotenv import load_dotenv
-import requests  # Add this for API key validation
-import warnings
-import json
-from pprint import pprint
-import traceback
+from mcp_use.client import MCPClient
+from mcp_use.adapters.langchain_adapter import LangChainAdapter
+import requests
 
 
 # Load environment variables
@@ -57,9 +42,10 @@ brave_server_params = StdioServerParameters(
         "BRAVE_API_KEY": brave_key
     })
 '''
+'''
 client = MultiServerMCPClient(
     {
-        # "firecrawl" : {
+        # "firecrawl": {
         #     "command": 'npx',
         #     "args": ['-y', 'firecrawl-mcp'],
         #     "env": {
@@ -67,15 +53,14 @@ client = MultiServerMCPClient(
         #     },
         #     "transport": "stdio"
         # },
-        
-        # "brave-search": {
-        #     "command": 'npx',
-        #     "args": ['-y', 'brave-search-mcp'],
-        #     "env": {
-        #         "BRAVE_API_KEY": brave_key
-        #     },
-        #     "transport": "stdio"
-        # },
+        "brave-search": {
+            "command": 'npx',
+            "args": ['-y', 'brave-search-mcp'],
+            "env": {
+                "BRAVE_API_KEY": brave_key
+            },
+            "transport": "stdio"
+        },
         "spotify": {
             "command": "uvx",
             "args": [
@@ -89,44 +74,100 @@ client = MultiServerMCPClient(
                 "SPOTIFY_REDIRECT_URI": os.getenv("SPOTIFY_REDIRECT_URI")
             },
             "transport": "stdio"
+        },
+        "weather": {
+            "command": "npx",
+            "args": ["-y", "@timlukahorstmann/mcp-weather"],
+            "env": {
+                "ACCUWEATHER_API_KEY": "your_api_key_here"
+            },
+            "transport": "stdio"
         }
-    }     
+    }
 )
+'''
+
+# Global dictionary to store IP and location data
+location_context = {
+    "user_ip": None,
+    "location_ready": False,
+    "detection_attempted": False
+}
+
+def detect_ip_node(state: MessagesState):
+    """Automatically detect user's public IP"""
+    try:
+        response = requests.get('https://api.ipify.org?format=json')
+        ip_data = response.json()
+        # Store in global dictionary
+        location_context.update({
+            "user_ip": ip_data['ip'],
+            "location_ready": True,
+            "detection_attempted": True
+        })
+    except Exception as e:
+        # Just proceed without IP if detection fails
+        return {
+            **state,
+            "user_ip": None,
+            "location_ready": False
+        }
 
 async def create_graph():
+
+    #create client
+    client = MCPClient.from_config_file("mcp_config.json")
     
     #define llm
     llm = ChatOpenAI(model="gpt-4o")
     
+    # Create adapter instance
+    adapter = LangChainAdapter()
+    
     #load in tools from the MCP client
-    tools = await client.get_tools()
+    tools = await adapter.create_tools(client)
     
     #bind tools
-    
     llm_with_tools = llm.bind_tools(tools)
     
     #define system prompt
-    system_msg = "You are a helpful assistant that can use various tools to answer questions.  \
-                   You can search the web, access a database, and interact with Spotify to find music"
-                   
+    system_msg = "You are a helpful assistant that can use various tools to answer questions. \
+                    You have access to tools that enable you to retrieve the location of a user via their IP \
+                    and find the weather in that location."
+
     
     #define assistant
     def assistant(state: MessagesState):
-        return {"messages": [llm_with_tools.invoke( system_msg + state["messages"])]}
+        user_ip = location_context.get("user_ip")
+        location_ready = location_context.get("location_ready")
+        
+        # Build context messages
+        context_messages = []
+        
+        if user_ip and location_ready:
+            context_msg = f"User's IP: {user_ip}"
+            context_messages.append(context_msg)
+        else:
+            context_msg = "Unable to detect user's IP or location is not ready."
+            context_messages.append(context_msg)
+            
+        print("Context Messages:", context_messages)
+            
+        return {"messages": [llm_with_tools.invoke([system_msg] + context_messages + state["messages"])]}
     
     # Graph
     builder = StateGraph(MessagesState) 
     
-    # Define nodes: these do the work
-    builder.add_node("assistant", assistant)
-    builder.add_node("tools", ToolNode(tools))
+    # Add IP detection node
+    builder.add_node("detect_ip", detect_ip_node)   
     
     # Define nodes: these do the work
     builder.add_node("assistant", assistant)
     builder.add_node("tools", ToolNode(tools))
-
+    
     # Define edges: these determine the control flow
-    builder.add_edge(START, "assistant")
+    builder.add_edge(START, "detect_ip")
+    builder.add_edge("detect_ip", "assistant")
     builder.add_conditional_edges(
         "assistant",
         # If the latest message (result) from assistant is a tool call -> tools_condition routes to tools
@@ -140,6 +181,8 @@ async def create_graph():
 
 
 async def main():
+    response = requests.get('https://api.ipify.org?format=json')
+    print(response.json())
     config = {"configurable": {"thread_id":1234}}
     
     agent = await create_graph()
@@ -151,6 +194,7 @@ async def main():
 
 if __name__ == "__main__":
     # Run the main function in an event loop
+   
     asyncio.run(main())
     
     
