@@ -91,7 +91,9 @@ client = MultiServerMCPClient(
 location_context = {
     "user_ip": None,
     "location_ready": False,
-    "detection_attempted": False
+    "detection_attempted": False,
+    "city": None,
+    "country": None,
 }
 
 def detect_ip_node(state: MessagesState):
@@ -112,20 +114,48 @@ def detect_ip_node(state: MessagesState):
             "user_ip": None,
             "location_ready": False
         }
-
-async def create_graph():
-
+        
+    if location_context["user_ip"]:
+        print(f"Detected User IP: {location_context['user_ip']}")
+        # Use API to fetch city, country of IP
+        try:
+            response = requests.get(f'https://api.ip2location.io/?key=09DB39B7D0F0287A4D0826261434609A&ip={location_context["user_ip"]}&format=json')
+            location_data = response.json()
+            print(f"Location Data: {location_data}")
+            location_context["city"] = location_data.get("city_name")
+            location_context["country"] = location_data.get("country_name")
+            print(f"Detected Location: {location_context['city']}, {location_context['country']}")
+        except Exception as e:
+            print(f"Failed to fetch location data: {e}")
+            
+            
+async def get_tools():
     #create client
     client = MCPClient.from_config_file("mcp_config.json")
-    
-    #define llm
-    llm = ChatOpenAI(model="gpt-4o")
     
     # Create adapter instance
     adapter = LangChainAdapter()
     
     #load in tools from the MCP client
     tools = await adapter.create_tools(client)
+    
+    return tools
+
+tools = asyncio.run(get_tools())
+
+async def create_graph():
+    
+    #create client
+    client = MCPClient.from_config_file("mcp_config.json")
+    
+    # Create adapter instance
+    adapter = LangChainAdapter()
+    
+    #load in tools from the MCP client
+    tools = await adapter.create_tools(client)
+
+    #define llm
+    llm = ChatOpenAI(model="gpt-4o")
     
     #bind tools
     llm_with_tools = llm.bind_tools(tools)
@@ -138,21 +168,17 @@ async def create_graph():
     
     #define assistant
     def assistant(state: MessagesState):
-        user_ip = location_context.get("user_ip")
+        country = location_context.get("country")
+        city = location_context.get("city")
         location_ready = location_context.get("location_ready")
         
         # Build context messages
         context_messages = []
         
-        if user_ip and location_ready:
-            context_msg = f"User's IP: {user_ip}"
-            context_messages.append(context_msg)
-        else:
-            context_msg = "Unable to detect user's IP or location is not ready."
-            context_messages.append(context_msg)
-            
-        print("Context Messages:", context_messages)
-            
+        if city and country:
+            context = f"The user is currently in {city}, {country}."
+            context_messages.append(context)
+        
         return {"messages": [llm_with_tools.invoke([system_msg] + context_messages + state["messages"])]}
     
     # Graph
@@ -178,15 +204,17 @@ async def create_graph():
     graph = builder.compile()
     
     return graph
+    
+   
 
+async def invoke_our_graph(agent, st_messages, callables):
+    return await agent.ainvoke({"messages": st_messages}, config = {"callables": callables})
+    
 
 async def main():
-    response = requests.get('https://api.ipify.org?format=json')
-    print(response.json())
-    config = {"configurable": {"thread_id":1234}}
-    
     agent = await create_graph()
     
+    config = {"configurable": {"thread_id":1234}}
     while True:
         message = input("User: ")
         response = await agent.ainvoke({"messages": [message]}, config=config)
