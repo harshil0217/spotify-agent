@@ -11,14 +11,19 @@ import asyncio
 
 load_dotenv()  # Load environment variables from a .env file if present
 
-st.title("StreamLit 🤝 LangGraph")
-st.markdown("#### StreamlitCallBackHandler Full Implementation")
+st.title("Weather MCP type shi 🥶🥶")
+
 
 agent = asyncio.run(create_graph())  # Create the LangGraph agent
 
 if "messages" not in st.session_state:
     # default initial message to render in message state
     st.session_state["messages"] = [AIMessage(content="How can I help you?")]
+    
+if "agent" not in st.session_state:
+    st.session_state["agent"] = asyncio.run(create_graph())
+    
+agent = st.session_state["agent"]
     
 # Loop through all messages in the session state and render them as a chat on every st.refresh mech
 for msg in st.session_state.messages:
