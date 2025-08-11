@@ -1,5 +1,6 @@
 #import libraries
 from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import tools_condition, ToolNode
 from langgraph.graph import MessagesState
@@ -9,16 +10,11 @@ from dotenv import load_dotenv
 from mcp_use.client import MCPClient
 from mcp_use.adapters.langchain_adapter import LangChainAdapter
 import requests
+from typing import Annotated, List
 
 
 # Load environment variables
 load_dotenv()
-
-# Validate Brave API key
-brave_key = os.getenv("BRAVE_API_KEY")
-if not brave_key:
-    raise ValueError("BRAVE_API_KEY environment variable is not set.")
-
 
 
 # Validate OpenAI API key
@@ -26,9 +22,7 @@ openai_key = os.getenv("OPENAI_API_KEY")
 if not openai_key:
     raise ValueError("OPENAI_API_KEY environment variable is not set.")
 
-firecrawl_key = os.getenv("FIRECRAWL_API_KEY")
-if not firecrawl_key:
-    raise ValueError("FIRECRAWL_API_KEY environment variable is not set.")
+
 
 
 # Initialize the model
@@ -128,21 +122,31 @@ def detect_ip_node(state: MessagesState):
         except Exception as e:
             print(f"Failed to fetch location data: {e}")
             
-            
-async def get_tools():
-    #create client
-    client = MCPClient.from_config_file("mcp_config.json")
+@tool
+async def get_locataion() -> str:
+    """Automatically detect user's public IP"""
+    ip = ""
+    try:
+        response = requests.get('https://api.ipify.org?format=json')
+        ip_data = response.json()
+        ip = ip_data['ip']
+    except Exception as e:
+        return "Failed to detect IP address."
     
-    # Create adapter instance
-    adapter = LangChainAdapter()
-    
-    #load in tools from the MCP client
-    tools = await adapter.create_tools(client)
-    
-    return tools
+    """Use API to fetch city, country of IP"""
+    try:
+        response = requests.get(f'https://api.ip2location.io/?key=09DB39B7D0F0287A4D0826261434609A&ip={ip}&format=json')
+        location_data = response.json()
+        city = location_data.get("city_name", "Unknown City")
+        country = location_data.get("country_name", "Unknown Country")
+        print(f"Detected Location: {city}, {country}")
+        return f"Detected Location: {city}, {country}"
 
-tools = asyncio.run(get_tools())
-
+    except Exception as e:
+        return f"Failed to fetch location data: {e}"
+    
+    
+    
 async def create_graph():
     
     #create client
@@ -153,6 +157,9 @@ async def create_graph():
     
     #load in tools from the MCP client
     tools = await adapter.create_tools(client)
+    
+    # Add the custom tool for location detection
+    tools.append(get_locataion)
 
     #define llm
     llm = ChatOpenAI(model="gpt-4o")
@@ -168,32 +175,17 @@ async def create_graph():
     
     #define assistant
     def assistant(state: MessagesState):
-        country = location_context.get("country")
-        city = location_context.get("city")
-        location_ready = location_context.get("location_ready")
-        
-        # Build context messages
-        context_messages = []
-        
-        if city and country:
-            context = f"The user is currently in {city}, {country}."
-            context_messages.append(context)
-        
-        return {"messages": [llm_with_tools.invoke([system_msg] + context_messages + state["messages"])]}
+        return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
     
     # Graph
     builder = StateGraph(MessagesState) 
-    
-    # Add IP detection node
-    builder.add_node("detect_ip", detect_ip_node)   
-    
+
     # Define nodes: these do the work
     builder.add_node("assistant", assistant)
     builder.add_node("tools", ToolNode(tools))
     
     # Define edges: these determine the control flow
-    builder.add_edge(START, "detect_ip")
-    builder.add_edge("detect_ip", "assistant")
+    builder.add_edge(START, "assistant")
     builder.add_conditional_edges(
         "assistant",
         # If the latest message (result) from assistant is a tool call -> tools_condition routes to tools

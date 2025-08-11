@@ -15,7 +15,7 @@ st.title("Weather MCP type shi 🥶🥶")
 
 
 agent = asyncio.run(create_graph())  # Create the LangGraph agent
-
+ 
 if "messages" not in st.session_state:
     # default initial message to render in message state
     st.session_state["messages"] = [AIMessage(content="How can I help you?")]
