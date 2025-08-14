@@ -33,7 +33,7 @@ def get_streamlit_cb(parent_container: DeltaGenerator) -> BaseCallbackHandler:
                 initial_text (str): Optional initial text to start with in the container.
             """
             self.container = container  # The Streamlit container to update
-            self.token_placeholder = self.container.empty()  # Placeholder for dynamic token updates
+            self.token_placeholder = self.container.empty() 
             self.text = initial_text  # Initialize the text content, starting with any initial text
 
         def on_llm_new_token(self, token: str, **kwargs) -> None:

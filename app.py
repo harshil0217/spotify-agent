@@ -5,9 +5,11 @@ import streamlit as st
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent_script import invoke_our_graph, create_graph
-from st_callable_util import get_streamlit_cb  # Utility function to get a Streamlit callback handler with context
+
+#from st_callable_util import get_streamlit_cb  # Utility function to get a Streamlit callback handler with context
 import asyncio
 
+import time
 
 load_dotenv()  # Load environment variables from a .env file if present
 
@@ -42,10 +44,13 @@ if prompt := st.chat_input():
 
     # Process the AI's response and handles graph events using the callback mechanism
     with st.chat_message("assistant"):
-        msg_placeholder = st.empty()  # Placeholder for visually updating AI's response after events end
-        # create a new placeholder for streaming messages and other events, and give it context
-        st_callback = get_streamlit_cb(st.empty())
-        response = asyncio.run(invoke_our_graph(agent, st.session_state.messages, [st_callback]))
-        last_msg = response["messages"][-1].content
-        st.session_state.messages.append(AIMessage(content=last_msg))  # Add that last message to the st_message_state
-        msg_placeholder.write(last_msg) # visually refresh the complete response after the callback container
+        response = asyncio.run(invoke_our_graph(agent, st.session_state.messages))
+        text = response["messages"][-1].content
+        placeholder = st.empty()
+        streamed_text = ""
+        for token in text.split():
+            streamed_text += token + " "
+            placeholder.write(streamed_text)
+            time.sleep(0.07)  # Adjust speed as needed
+
+        st.session_state.messages.append(AIMessage(content=text))

@@ -199,8 +199,9 @@ async def create_graph():
     
    
 
-async def invoke_our_graph(agent, st_messages, callables):
-    return await agent.ainvoke({"messages": st_messages}, config = {"callables": callables})
+async def invoke_our_graph(agent, st_messages):
+    response = await agent.ainvoke({"messages": st_messages})
+    return response
     
 
 async def main():
