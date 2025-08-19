@@ -170,7 +170,8 @@ async def create_graph():
     #define system prompt
     system_msg = "You are a helpful assistant that can use various tools to answer questions. \
                     You have access to tools that enable you to retrieve the location of a user via their IP \
-                    and find the weather in that location."
+                    and find the weather in that location. When asked what the weather is, you should provide a general summary \
+                    only providing hour by hour info when specifically asked for it."
 
     
     #define assistant
