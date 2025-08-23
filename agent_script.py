@@ -168,10 +168,9 @@ async def create_graph():
     llm_with_tools = llm.bind_tools(tools)
     
     #define system prompt
-    system_msg = "You are a helpful assistant that can use various tools to answer questions. \
-                    You have access to tools that enable you to retrieve the location of a user via their IP \
-                    and find the weather in that location. When asked what the weather is, you should provide a general summary \
-                    only providing hour by hour info when specifically asked for it."
+    system_msg = "You are a helpful assistant that has access to Spotify. \
+                    You can create playlists, find songs, and provide music recommendations"
+                   
 
     
     #define assistant
