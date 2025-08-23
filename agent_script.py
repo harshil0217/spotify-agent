@@ -1,5 +1,6 @@
 #import libraries
 from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import tools_condition, ToolNode
@@ -25,8 +26,7 @@ if not openai_key:
 
 
 
-# Initialize the model
-model = ChatOpenAI(model="gpt-4o")
+
 
 '''
 brave_server_params = StdioServerParameters(
