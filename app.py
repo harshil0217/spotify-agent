@@ -13,7 +13,7 @@ import time
 
 load_dotenv()  # Load environment variables from a .env file if present
 
-st.title("Weather MCP type shi 🥶🥶")
+st.title("🎵Spotify Agent🎵")
 
 
 agent = asyncio.run(create_graph())  # Create the LangGraph agent
@@ -22,10 +22,12 @@ if "messages" not in st.session_state:
     # default initial message to render in message state
     st.session_state["messages"] = [AIMessage(content="How can I help you?")]
     
+    
 if "agent" not in st.session_state:
     st.session_state["agent"] = asyncio.run(create_graph())
     
 agent = st.session_state["agent"]
+    
     
 # Loop through all messages in the session state and render them as a chat on every st.refresh mech
 for msg in st.session_state.messages:
@@ -36,6 +38,7 @@ for msg in st.session_state.messages:
     if type(msg) == HumanMessage:
         st.chat_message("user").write(msg.content)
         
+
         
 # takes new input in chat box from user and invokes the graph
 if prompt := st.chat_input():
@@ -46,6 +49,7 @@ if prompt := st.chat_input():
     with st.chat_message("assistant"):
         response = asyncio.run(invoke_our_graph(agent, st.session_state.messages))
         text = response["messages"][-1].content
+        print(text)
         placeholder = st.empty()
         streamed_text = ""
         for token in text.split():
