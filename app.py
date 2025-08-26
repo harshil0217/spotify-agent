@@ -8,8 +8,10 @@ from agent_script import invoke_our_graph, create_graph
 
 #from st_callable_util import get_streamlit_cb  # Utility function to get a Streamlit callback handler with context
 import asyncio
+import nest_asyncio
 
 import time
+import requests
 
 load_dotenv()  # Load environment variables from a .env file if present
 
@@ -38,6 +40,22 @@ for msg in st.session_state.messages:
     if type(msg) == HumanMessage:
         st.chat_message("user").write(msg.content)
         
+        
+def run_async_simple(coro):
+    """Simple async runner - get full response then return"""
+    def runner():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    
+    # Run in thread and wait for complete result
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(runner)
+        return future.result()
 
         
 # takes new input in chat box from user and invokes the graph
@@ -47,8 +65,10 @@ if prompt := st.chat_input():
 
     # Process the AI's response and handles graph events using the callback mechanism
     with st.chat_message("assistant"):
-        response = asyncio.run(invoke_our_graph(agent, st.session_state.messages))
-        text = response["messages"][-1].content
+        serialized_messages = [msg.dict() if hasattr(msg, 'dict') else msg for msg in st.session_state.messages]
+        output = requests.post("http://localhost:8000/chat", json={"input": serialized_messages})
+        output = output.json()
+        text = output["response"]["messages"][-1]['content']
         print(text)
         placeholder = st.empty()
         streamed_text = ""

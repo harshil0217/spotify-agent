@@ -209,21 +209,11 @@ async def invoke_our_graph(agent, st_messages):
 async def main():
     agent = await create_graph()
     
-    
     config = {"configurable": {"thread_id":1234}}
     while True:
-        final_text = ""
         message = input("User: ")
-        async for event in agent.astream_events({"messages": [message]}, version = 'v2', config=config):
-            kind = event["event"]
-            if kind == "on_chat_model_stream":
-                addition = event["data"]["chunk"].content
-                final_text += addition
-                print(addition, end='', flush=True)
-            elif kind == "on_tool_start":
-                print(f"\n[Calling tool: {event['name']}]")
-            elif kind == "on_tool_end":
-                print(f"\n[Tool {event['name']} completed]")
+        response = await agent.ainvoke({"messages": [message]}, config=config)
+        print("Assistant:", response["messages"][-1].content)
 
             
 
