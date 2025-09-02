@@ -1,0 +1,4 @@
+- Code to automatically clear proccesses running on 8090 on startup
+- Code to let the user know theyve reached input token limits
+- Limit tools available to agent during config??
+- Try Recreating initial OAuth

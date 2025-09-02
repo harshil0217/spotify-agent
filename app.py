@@ -41,23 +41,6 @@ for msg in st.session_state.messages:
         st.chat_message("user").write(msg.content)
         
         
-def run_async_simple(coro):
-    """Simple async runner - get full response then return"""
-    def runner():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-    
-    # Run in thread and wait for complete result
-    import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(runner)
-        return future.result()
-
-        
 # takes new input in chat box from user and invokes the graph
 if prompt := st.chat_input():
     st.session_state.messages.append(HumanMessage(content=prompt))

@@ -162,20 +162,59 @@ async def create_graph():
     #load in tools from the MCP client
     tools = await adapter.create_tools(client)
     
+    #select only search and playlist tools
+    #tools = [tool for tool in tools if tool.name in ["SpotifyPlaylist", "SpotifySearch"]]
+    
     #define llm
-    llm = ChatGroq(model='openai/gpt-oss-120b')
+    llm = ChatGroq(model='meta-llama/llama-4-scout-17b-16e-instruct')
     
     #bind tools
     llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
     
     #define system prompt
-    system_msg = "You are a helpful assistant that has access to Spotify. \
-                    You can create playlists, find songs, and provide music recommendations"
-                   
+    system_msg = """You are a helpful assistant that has access to Spotify. You can create playlists, find songs, and provide music recommendations.
 
-    
+    When creating playlists:
+    - If the user does not specify playlist size, limit playlist lengths to only 10 songs
+    - Always provide helpful music recommendations based on user preferences and create well-curated playlists with appropriate descriptions
+    - When the User requests a playlist to be created, ensure that there are actually songs added to the playlist you create
+
+    CRITICAL - Parameter Type Requirements:
+
+    **NUMBERS MUST NEVER HAVE QUOTES**
+    When you need to pass a number parameter:
+    - CORRECT: limit: 10
+    - WRONG: limit: "10"
+
+    SpotifySearch tool STRICT requirements:
+    - query: Plain string with quotes → "Beatles" or "rock music"
+    - limit: Plain number WITHOUT quotes → 10, 20, 50 (NOT "10", NOT "20", NOT "50")
+    - qtype: Plain string with quotes → "track", "album", "artist"
+
+    Remember:
+    - STRINGS need quotes: "example"
+    - NUMBERS/INTEGERS must NOT have quotes: 10, 25, 100
+    - BOOLEANS must NOT have quotes: true, false
+
+    When calling SpotifySearch:
+    If you want to search for 10 tracks about rock:
+    - query: "rock" ✓
+    - limit: 10 ✓ (NO QUOTES!)
+    - qtype: "track" ✓
+
+    NEVER do this:
+    - limit: "10" ✗ (This is a STRING, not a NUMBER)
+    - limit: "20" ✗ (This is a STRING, not a NUMBER)
+
+    The limit parameter is an INTEGER. Integers are numbers without quotes.
+    Example integers: 1, 5, 10, 20, 50, 100
+    These are NOT integers: "1", "5", "10", "20", "50", "100"
+
+    Double-check before every tool call: Are your numbers naked (without quotes)?"""
     #define assistant
     def assistant(state: MessagesState):
+        #get las user message
+        recent_messages = state["messages"][-10:]  # Adjust as needed
         return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
     
     # Graph
@@ -209,11 +248,21 @@ async def invoke_our_graph(agent, st_messages):
 async def main():
     agent = await create_graph()
     
+    
     config = {"configurable": {"thread_id":1234}}
     while True:
+        final_text = ""
         message = input("User: ")
-        response = await agent.ainvoke({"messages": [message]}, config=config)
-        print("Assistant:", response["messages"][-1].content)
+        async for event in agent.astream_events({"messages": [message]}, version = 'v2', config=config):
+            kind = event["event"]
+            if kind == "on_chat_model_stream":
+                addition = event["data"]["chunk"].content
+                final_text += addition
+                print(addition, end='', flush=True)
+            elif kind == "on_tool_start":
+                print(f"\n[Calling tool: {event['name']}]")
+            elif kind == "on_tool_end":
+                print(f"\n[Tool {event['name']} completed]")
 
             
 
