@@ -1,4 +1,3 @@
-
 # Week 1: Setting Up Your Enviornment, APIs, and Agent
 
 Hey! Thanks for joining the Spotify Agent Project. This week, we'll be taking care of all of the boring but necessary stuff that will ensure you have the tools you need to build. But I'll also hope to introduce some fundamental concepts that we'll be expanding upon later on.
@@ -33,8 +32,6 @@ For Mac: Python is usually installed by default. Open a terminal and type python
 
 If you aren't familiar with Git and GitHub, don't worry. Git is what is called a "version control tool" that basically allows use to save and keep a record of our code as it evolves over time. GitHub is a website that maintains a copy of this record online.
 
-
-#### Installing Git
 Here's how to install Git on your system:
 
 Windows:
@@ -55,16 +52,14 @@ Linux (Ubuntu/Debian):
 2. Run: `sudo apt update && sudo apt install git -y`
 3. Type `git --version` to verify
 
-
-
-
 After installation, configure your identity:
+
 ```sh
 git config --global user.name "Your Name"
 git config --global user.email "your.email@example.com"
 ```
 
-#### Setting up GitHub and Authentication
+### Setting up GitHub and Authentication
 
 1. Create a GitHub Account:
    - Go to [github.com](https://github.com) and click "Sign up"
@@ -74,19 +69,19 @@ git config --global user.email "your.email@example.com"
 2. Create a Personal Access Token (PAT):
    - Click your profile picture → Settings → Developer settings → Personal access tokens → Tokens (classic)
    - Click "Generate new token (classic)"
-   - Give it a name
+   - Give it a name like "My Computer"
    - Select scopes: at minimum, check "repo" and "workflow"
-   - Copy the token immediately and store it somewhere safe - you won't see it again!
+   - Copy the token immediately - you won't see it again!
 
 3. Configure Git to remember your credentials:
+
 ```sh
 git config --global credential.helper store
 ```
-Then the first time you push to GitHub (more on that later), enter your username and use your PAT as the password. Git will remember it for future uses.
 
+Then the first time you push to GitHub, enter your username and use your PAT as the password. Git will remember it for future uses.
 
-#### Create a repository for your project
-In GitHub, make a new repository. Give it Public visibility.
+Now you can create your first repository. In GitHub, make a new repository. Give it Public visibility.
 
 Go to that repo and click the "Code" tab, then copy the link within the "Quick setup" box
 
@@ -130,7 +125,7 @@ This creates a pyproject.toml file that will track our project configuration and
 We are now going to create a virtual enviornment for our project. If you aren't aware, virtual enviornments allow us to install specific libraries for just this project without affecting our python installation globally. 
 
 Create a virtual environment with Python 3.11+:
-`uv venv --python 3.11 `
+`uv venv --python 3.11`
 
 Activate the environment:
 Windows:
@@ -139,12 +134,11 @@ Windows:
 Mac/Linux:
 `source .venv/bin/activate`
 
-
 #### Update your gitignore
 
-Let's go back to the .gitignore file from earlier. All of the packages and source code installed within our venv are not worth tracking and may cause git errors as our project complexity grows. 
+Let's go back to the .gitignore file from earlier. All of the packages and source code installed within our venv are not worth tracking and may cause git errors as our project complexity grows.
 
-Add the following to your gitignore
+Add the following to your gitignore:
 
 ```gitignore
 # Virtual environment
@@ -153,84 +147,4 @@ venv/
 env/
 ```
 
-Now push these changes from your local git repository, to the remote repository we created earlier. The easiest way to do this is with the Source Control tool in Vscode. You can also use your command line
-
-```bash
-git add . #tracks all of the files in your directory
-git commit -m "commit message of your choice" #logs all of the changes made to those files
-git push #updates the repository hosted online on GitHub
-```
-
-Btw, I recommend that you get very, very good at Git (will pay dividends in your lifetime as a developer). So check out this[website](https://learngitbranching.js.org/?locale=en_US) if you want to learn more.
-
-## Signing up for APIs
-
-There are two main services we'll need to sign up for to build our project, Spotify and Groq.
-
-### Spotify API Setup
-
-1. Create a Spotify Developer Account:
-   - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-   - Log in with your Spotify account (create one if needed)
-   - Accept the Developer Terms of Service
-
-2. Create a New App:
-   - Click "Create App" in the dashboard
-   - Fill in the app name (e.g., "My Spotify Agent")
-   - Add a brief description
-   - Set the Redirect URI to `http://localhost:3000/callback`
-     (The redirect URI is where Spotify will send users after they authorize your app. Since we're building a local app, we use localhost)
-
-3. Get Your Credentials:
-   - After creating the app, you'll see your Client ID
-   - Click "View Client Secret" to reveal your Client Secret
-   - Save both these values - you'll need them later in your code
-   - IMPORTANT: Never commit these credentials to Git! We'll store them in a .env file (more on that later)
-
-4. Configure Redirect URI:
-   - The redirect URI (`http://localhost:3000/callback`) is crucial for OAuth flow
-   - When a user authorizes your app, Spotify will redirect them to this URL
-   - Your app will be listening on this URL to complete the authentication
-   
-
-
-### Groq
-
-You may be familiar with Grok, Elon Musk and xAI's flagship LLM that was probably trained on too much data from 4chan. Groq (spelled with a q instead of a k) is an entirely different service altogether (confusion, I know). 
-
-Groq is a service that offers various open source llms hosted on the cloud that we can send requests to. It's useful for our purposes because they offer a free tier with a decent amount of free input and output tokens.
-
-Here's how to sign up for Groq:
-
-1. Create an Account:
-   - Go to [groq.com](https://console.groq.com/sign-up)
-   - Click "Sign Up" and create an account with your email
-   - Verify your email address when prompted
-
-2. Get Your API Key:
-   - After logging in, go to the [API Keys](https://console.groq.com/keys) section
-   - Click "Create API Key"
-   - Give your key a name (e.g., "Spotify Agent")
-   - Copy the API key immediately and store it somewhere safe- you won't see it again!
-   - IMPORTANT: Like with Spotify, never commit this key to Git. We'll add it to our .env file later
-
-3. Check Your Usage Limits:
-   - Groq offers a free tier with generous limits
-   - You can view your current usage in the dashboard
-   - You should have zero usage at the moment
-   - The free tier should be more than enough for development
-
-
-## Agentic Fundamentals
-
-Here I'll link two YouTube videos that I recommend you watch. The first is an explanation of something called MCP or Model Context Protocol, a standardized framework for how agents should communicatue with tools
-
-[MCP](https://www.youtube.com/watch?v=FLpS7OfD5-s)
-
-The Second is a basic overview of LangChain and LangGraph. We'll eventually be using LangGraph to build our project, but it's a good idea to be familiar with both
-
-[LangChain and LangGraph](https://www.youtube.com/watch?v=qAF1NjEVHhY)
-
-You should also read through this general overview provided in the LangGraph Documentation
-
-[LangGraph Quickstart](https://langchain-ai.github.io/langgraph/concepts/why-langgraph/)
+## Signing up

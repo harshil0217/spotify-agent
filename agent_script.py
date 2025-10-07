@@ -7,6 +7,7 @@ from langgraph.prebuilt import tools_condition, ToolNode
 from langgraph.graph import MessagesState
 import asyncio
 import os
+import subprocess
 from dotenv import load_dotenv
 from mcp_use.client import MCPClient
 from mcp_use.adapters.langchain_adapter import LangChainAdapter
@@ -17,6 +18,50 @@ import streamlit as st
 
 # Load environment variables
 load_dotenv()
+
+
+def kill_processes_on_port(port):
+    """Kill all processes running on the specified port"""
+    try:
+        # Find processes using the port
+        result = subprocess.run(['lsof', '-ti', f':{port}'], 
+                              capture_output=True, text=True, check=False)
+        
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            print(f"Found processes on port {port}: {pids}")
+            
+            # Kill each process
+            for pid in pids:
+                if pid:
+                    try:
+                        subprocess.run(['kill', '-9', pid], check=True)
+                        print(f"Killed process {pid} on port {port}")
+                    except subprocess.CalledProcessError:
+                        print(f"Failed to kill process {pid}")
+        else:
+            print(f"No processes found on port {port}")
+            
+    except FileNotFoundError:
+        print("lsof command not found, trying alternative method...")
+        try:
+            # Alternative method using netstat and kill
+            result = subprocess.run(['netstat', '-tulpn'], 
+                                  capture_output=True, text=True, check=False)
+            if result.returncode == 0:
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    if f':{port}' in line and 'LISTEN' in line:
+                        parts = line.split()
+                        if len(parts) > 6 and '/' in parts[6]:
+                            pid = parts[6].split('/')[0]
+                            try:
+                                subprocess.run(['kill', '-9', pid], check=True)
+                                print(f"Killed process {pid} on port {port}")
+                            except subprocess.CalledProcessError:
+                                print(f"Failed to kill process {pid}")
+        except Exception as e:
+            print(f"Error killing processes on port {port}: {e}")
 
 
 # Validate OpenAI API key
@@ -171,7 +216,7 @@ async def create_graph():
     #bind tools
     llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
     
-    #define system prompt
+    #define system prompth
     system_msg = """You are a helpful assistant that has access to Spotify. You can create playlists, find songs, and provide music recommendations.
 
     When creating playlists:
@@ -186,31 +231,7 @@ async def create_graph():
     - CORRECT: limit: 10
     - WRONG: limit: "10"
 
-    SpotifySearch tool STRICT requirements:
-    - query: Plain string with quotes → "Beatles" or "rock music"
-    - limit: Plain number WITHOUT quotes → 10, 20, 50 (NOT "10", NOT "20", NOT "50")
-    - qtype: Plain string with quotes → "track", "album", "artist"
-
-    Remember:
-    - STRINGS need quotes: "example"
-    - NUMBERS/INTEGERS must NOT have quotes: 10, 25, 100
-    - BOOLEANS must NOT have quotes: true, false
-
-    When calling SpotifySearch:
-    If you want to search for 10 tracks about rock:
-    - query: "rock" ✓
-    - limit: 10 ✓ (NO QUOTES!)
-    - qtype: "track" ✓
-
-    NEVER do this:
-    - limit: "10" ✗ (This is a STRING, not a NUMBER)
-    - limit: "20" ✗ (This is a STRING, not a NUMBER)
-
-    The limit parameter is an INTEGER. Integers are numbers without quotes.
-    Example integers: 1, 5, 10, 20, 50, 100
-    These are NOT integers: "1", "5", "10", "20", "50", "100"
-
-    Double-check before every tool call: Are your numbers naked (without quotes)?"""
+   """
     #define assistant
     def assistant(state: MessagesState):
         #get las user message
@@ -246,6 +267,10 @@ async def invoke_our_graph(agent, st_messages):
     
 
 async def main():
+    # Kill any existing processes on port 8090 before starting
+    print("Checking for existing processes on port 8090...")
+    kill_processes_on_port(8090)
+    
     agent = await create_graph()
     
     
