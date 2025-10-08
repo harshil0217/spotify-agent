@@ -2,6 +2,7 @@
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import tools_condition, ToolNode
 from langgraph.graph import MessagesState
@@ -12,8 +13,9 @@ from dotenv import load_dotenv
 from mcp_use.client import MCPClient
 from mcp_use.adapters.langchain_adapter import LangChainAdapter
 import requests
-from typing import Annotated, List
+from typing import Annotated, List, Dict, Any, TypedDict
 import streamlit as st
+import json
 
 
 # Load environment variables
@@ -70,193 +72,212 @@ if not openai_key:
     raise ValueError("OPENAI_API_KEY environment variable is not set.")
 
 
+# Custom State for Multi-Agent System
+class MultiAgentState(TypedDict):
+    messages: Annotated[List, "The conversation messages"]
+    current_agent: str  # Track which agent should handle the task
+    task_type: str      # Type of task: "search", "playlist", or "general"
+    search_results: Dict[str, Any]  # Store search results between agents
+    playlist_info: Dict[str, Any]   # Store playlist information
 
 
-
-
-'''
-brave_server_params = StdioServerParameters(
-    command='npx',
-    args=['-y', '@modelcontextprotocol/server-brave-search'],
-    env={
-        "BRAVE_API_KEY": brave_key
-    })
-'''
-'''
-client = MultiServerMCPClient(
-    {
-        # "firecrawl": {
-        #     "command": 'npx',
-        #     "args": ['-y', 'firecrawl-mcp'],
-        #     "env": {
-        #         "FIRECRAWL_API_KEY": firecrawl_key
-        #     },
-        #     "transport": "stdio"
-        # },
-        "brave-search": {
-            "command": 'npx',
-            "args": ['-y', 'brave-search-mcp'],
-            "env": {
-                "BRAVE_API_KEY": brave_key
-            },
-            "transport": "stdio"
-        },
-        "spotify": {
-            "command": "uvx",
-            "args": [
-                "--from",
-                "git+https://github.com/varunneal/spotify-mcp",
-                "spotify-mcp"
-            ],
-            "env": {
-                "SPOTIFY_CLIENT_ID": os.getenv("SPOTIFY_CLIENT_ID"),
-                "SPOTIFY_CLIENT_SECRET": os.getenv("SPOTIFY_CLIENT_SECRET"),
-                "SPOTIFY_REDIRECT_URI": os.getenv("SPOTIFY_REDIRECT_URI")
-            },
-            "transport": "stdio"
-        },
-        "weather": {
-            "command": "npx",
-            "args": ["-y", "@timlukahorstmann/mcp-weather"],
-            "env": {
-                "ACCUWEATHER_API_KEY": "your_api_key_here"
-            },
-            "transport": "stdio"
-        }
-    }
-)
-'''
-
-# Global dictionary to store IP and location data
-location_context = {
-    "user_ip": None,
-    "location_ready": False,
-    "detection_attempted": False,
-    "city": None,
-    "country": None,
-}
-
-def detect_ip_node(state: MessagesState):
-    """Automatically detect user's public IP"""
-    try:
-        response = requests.get('https://api.ipify.org?format=json')
-        ip_data = response.json()
-        # Store in global dictionary
-        location_context.update({
-            "user_ip": ip_data['ip'],
-            "location_ready": True,
-            "detection_attempted": True
-        })
-    except Exception as e:
-        # Just proceed without IP if detection fails
-        return {
-            **state,
-            "user_ip": None,
-            "location_ready": False
-        }
-        
-    if location_context["user_ip"]:
-        print(f"Detected User IP: {location_context['user_ip']}")
-        # Use API to fetch city, country of IP
-        try:
-            response = requests.get(f'https://api.ip2location.io/?key=09DB39B7D0F0287A4D0826261434609A&ip={location_context["user_ip"]}&format=json')
-            location_data = response.json()
-            print(f"Location Data: {location_data}")
-            location_context["city"] = location_data.get("city_name")
-            location_context["country"] = location_data.get("country_name")
-            print(f"Detected Location: {location_context['city']}, {location_context['country']}")
-        except Exception as e:
-            print(f"Failed to fetch location data: {e}")
-            
-@tool
-async def get_locataion() -> str:
-    """Automatically detect user's public IP"""
-    ip = ""
-    try:
-        response = requests.get('https://api.ipify.org?format=json')
-        ip_data = response.json()
-        ip = ip_data['ip']
-    except Exception as e:
-        return "Failed to detect IP address."
+def categorize_request(message: str) -> str:
+    """Determine which agent should handle the request"""
+    message_lower = message.lower()
     
-    """Use API to fetch city, country of IP"""
-    try:
-        response = requests.get(f'https://api.ip2location.io/?key=09DB39B7D0F0287A4D0826261434609A&ip={ip}&format=json')
-        location_data = response.json()
-        city = location_data.get("city_name", "Unknown City")
-        country = location_data.get("country_name", "Unknown Country")
-        print(f"Detected Location: {city}, {country}")
-        return f"Detected Location: {city}, {country}"
-
-    except Exception as e:
-        return f"Failed to fetch location data: {e}"
+    # Playlist-related keywords
+    playlist_keywords = ["playlist", "create", "add tracks", "add songs", "make a playlist"]
     
+    # Search-related keywords  
+    search_keywords = ["search", "find", "look for", "discover", "track", "song", "artist", "album"]
+    
+    if any(keyword in message_lower for keyword in playlist_keywords):
+        return "playlist"
+    elif any(keyword in message_lower for keyword in search_keywords):
+        return "search"
+    else:
+        return "general"
 
 
-    
-
-    
-async def create_graph():
-    
-    #create client
+async def create_multi_agent_graph():
+    # Create MCP client and load tools
     client = MCPClient.from_config_file("mcp_config.json")
-    
-    # Create adapter instance
     adapter = LangChainAdapter()
+    all_tools = await adapter.create_tools(client)
     
-    #load in tools from the MCP client
-    tools = await adapter.create_tools(client)
+    print(f"Loaded {len(all_tools)} tools from MCP")
     
-    #select only search and playlist tools
-    #tools = [tool for tool in tools if tool.name in ["SpotifyPlaylist", "SpotifySearch"]]
+    # Filter tools by category
+    search_tools = [tool for tool in all_tools if tool.name in ["searchSpotify"]]
+    playlist_tools = [tool for tool in all_tools if tool.name in [
+        "createPlaylist", "addTracksToPlaylist", "getMyPlaylists", "getPlaylistTracks"
+    ]]
     
-    #define llm
+    print(f"Search tools: {[t.name for t in search_tools]}")
+    print(f"Playlist tools: {[t.name for t in playlist_tools]}")
+    
+    # Define LLM
     llm = ChatGroq(model='meta-llama/llama-4-scout-17b-16e-instruct')
     
-    #bind tools
-    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
+    # ORCHESTRATOR AGENT
+    def orchestrator_agent(state: MultiAgentState):
+        """Routes requests to appropriate specialized agents"""
+        last_message = state["messages"][-1]
+        
+        if isinstance(last_message, HumanMessage):
+            task_type = categorize_request(last_message.content)
+            
+            system_msg = """You are an orchestrator agent for a Spotify multi-agent system. 
+            
+            Available agents:
+            - Search Agent: Handles finding tracks, albums, artists on Spotify
+            - Playlist Agent: Handles creating playlists and adding tracks to playlists
+            
+            Based on the user's request, determine which agent should handle the task and provide
+            clear instructions to that agent. If the task requires both searching and playlist creation,
+            coordinate between the agents.
+            
+            Task Type Identified: """ + task_type
+            
+            response = llm.invoke([
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": last_message.content}
+            ])
+            
+            return {
+                "messages": state["messages"] + [response],
+                "task_type": task_type,
+                "current_agent": task_type if task_type in ["search", "playlist"] else "orchestrator"
+            }
+        
+        return {"messages": state["messages"]}
     
-    #define system prompth
-    system_msg = """You are a helpful assistant that has access to Spotify. You can create playlists, find songs, and provide music recommendations.
-
-    When creating playlists:
-    - If the user does not specify playlist size, limit playlist lengths to only 10 songs
-    - Always provide helpful music recommendations based on user preferences and create well-curated playlists with appropriate descriptions
-    - When the User requests a playlist to be created, ensure that there are actually songs added to the playlist you create
-
-    CRITICAL - Parameter Type Requirements:
-
-    **NUMBERS MUST NEVER HAVE QUOTES**
-    When you need to pass a number parameter:
-    - CORRECT: limit: 10
-    - WRONG: limit: "10"
-
-   """
-    #define assistant
-    def assistant(state: MessagesState):
-        #get las user message
-        recent_messages = state["messages"][-10:]  # Adjust as needed
-        return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
+    # SEARCH AGENT
+    def search_agent(state: MultiAgentState):
+        """Specialized agent for finding tracks, albums, artists"""
+        search_llm = llm.bind_tools(search_tools, parallel_tool_calls=False)
+        
+        system_msg = """You are a specialist Spotify Search Agent. Your only job is to find tracks, albums, artists, or playlists on Spotify.
+        
+        Available tools:
+        - searchSpotify: Search for tracks, albums, artists, or playlists
+        
+        When searching:
+        - Use appropriate search queries
+        - Return detailed information about found items
+        - If user wants multiple songs, search for each individually or use broader queries
+        - Always provide track URIs/IDs for playlist creation
+        
+        CRITICAL - Parameter Type Requirements:
+        **NUMBERS MUST NEVER HAVE QUOTES**
+        - CORRECT: limit: 10
+        - WRONG: limit: "10"
+        """
+        
+        recent_messages = state["messages"][-5:]
+        response = search_llm.invoke([{"role": "system", "content": system_msg}] + 
+                                   [{"role": "user", "content": msg.content} for msg in recent_messages if hasattr(msg, 'content')])
+        
+        return {"messages": state["messages"] + [response]}
     
-    # Graph
-    builder = StateGraph(MessagesState) 
+    # PLAYLIST AGENT  
+    def playlist_agent(state: MultiAgentState):
+        """Specialized agent for playlist operations"""
+        playlist_llm = llm.bind_tools(playlist_tools, parallel_tool_calls=False)
+        
+        system_msg = """You are a specialist Spotify Playlist Agent. Your job is to create and manage playlists.
+        
+        Available tools:
+        - createPlaylist: Create a new playlist
+        - addTracksToPlaylist: Add tracks to a playlist
+        - getMyPlaylists: Get user's playlists
+        - getPlaylistTracks: Get tracks from a playlist
+        
+        When creating playlists:
+        - If user doesn't specify size, limit to 10 songs
+        - Create descriptive playlist names and descriptions
+        - Add appropriate tracks based on the theme/genre requested
+        - Always ensure tracks are actually added to created playlists
+        
+        CRITICAL - Parameter Type Requirements:
+        **NUMBERS MUST NEVER HAVE QUOTES**
+        - CORRECT: limit: 10  
+        - WRONG: limit: "10"
+        """
+        
+        recent_messages = state["messages"][-5:]
+        response = playlist_llm.invoke([{"role": "system", "content": system_msg}] + 
+                                     [{"role": "user", "content": msg.content} for msg in recent_messages if hasattr(msg, 'content')])
+        
+        return {"messages": state["messages"] + [response]}
 
-    # Define nodes: these do the work
-    builder.add_node("assistant", assistant)
-    builder.add_node("tools", ToolNode(tools))
+    # AGENT ROUTER
+    def route_to_agent(state: MultiAgentState):
+        """Route to the appropriate agent based on task type"""
+        task_type = state.get("task_type", "general")
+        current_agent = state.get("current_agent", "orchestrator")
+        
+        # Check if we need tools (last message is a tool call)
+        last_message = state["messages"][-1] if state["messages"] else None
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            return "tools"
+        
+        # Route based on current agent
+        if current_agent == "search":
+            return "search_agent"
+        elif current_agent == "playlist":
+            return "playlist_agent"
+        else:
+            return "orchestrator"
+
+    # BUILD THE GRAPH
+    builder = StateGraph(MultiAgentState)
     
-    # Define edges: these determine the control flow
-    builder.add_edge(START, "assistant")
+    # Add agent nodes
+    builder.add_node("orchestrator", orchestrator_agent)
+    builder.add_node("search_agent", search_agent)  
+    builder.add_node("playlist_agent", playlist_agent)
+    builder.add_node("tools", ToolNode(search_tools + playlist_tools))
+    
+    # Define edges
+    builder.add_edge(START, "orchestrator")
+    
+    # Conditional edges from orchestrator
     builder.add_conditional_edges(
-        "assistant",
-        # If the latest message (result) from assistant is a tool call -> tools_condition routes to tools
-        # If the latest message (result) from assistant is a not a tool call -> tools_condition routes to END
-        tools_condition,
+        "orchestrator",
+        route_to_agent,
+        {
+            "search_agent": "search_agent",
+            "playlist_agent": "playlist_agent", 
+            "orchestrator": END,
+            "tools": "tools"
+        }
     )
-    builder.add_edge("tools", "assistant")
-    graph = builder.compile()
     
-    return graph
+    # Conditional edges from search agent
+    builder.add_conditional_edges(
+        "search_agent",
+        tools_condition,
+        {
+            "tools": "tools",
+            "__end__": END
+        }
+    )
+    
+    # Conditional edges from playlist agent
+    builder.add_conditional_edges(
+        "playlist_agent", 
+        tools_condition,
+        {
+            "tools": "tools",
+            "__end__": END
+        }
+    )
+    
+    # Tools always go back to orchestrator for routing
+    builder.add_edge("tools", "orchestrator")
+    
+    return builder.compile()
     
 
 
@@ -271,154 +292,59 @@ async def main():
     print("Checking for existing processes on port 8090...")
     kill_processes_on_port(8090)
     
-    agent = await create_graph()
+    # Create the multi-agent graph
+    agent = await create_multi_agent_graph()
     
+    config = {"configurable": {"thread_id": 1234}}
     
-    config = {"configurable": {"thread_id":1234}}
+    print("\n🎵 Multi-Agent Spotify System Ready!")
+    print("Available capabilities:")
+    print("- Search Agent: Find tracks, albums, artists")
+    print("- Playlist Agent: Create and manage playlists")
+    print("- Orchestrator: Routes tasks to appropriate agents")
+    print("\nType your request (or 'quit' to exit):\n")
+    
     while True:
-        final_text = ""
-        message = input("User: ")
-        async for event in agent.astream_events({"messages": [message]}, version = 'v2', config=config):
-            kind = event["event"]
-            if kind == "on_chat_model_stream":
-                addition = event["data"]["chunk"].content
-                final_text += addition
-                print(addition, end='', flush=True)
-            elif kind == "on_tool_start":
-                print(f"\n[Calling tool: {event['name']}]")
-            elif kind == "on_tool_end":
-                print(f"\n[Tool {event['name']} completed]")
+        try:
+            message = input("User: ")
+            if message.lower() in ['quit', 'exit', 'q']:
+                print("Goodbye!")
+                break
+                
+            # Initialize state for multi-agent system
+            initial_state = {
+                "messages": [HumanMessage(content=message)],
+                "current_agent": "orchestrator",
+                "task_type": "general",
+                "search_results": {},
+                "playlist_info": {}
+            }
+            
+            print("\n🤖 Processing request...\n")
+            
+            async for event in agent.astream_events(initial_state, version='v2', config=config):
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    addition = event["data"]["chunk"].content
+                    print(addition, end='', flush=True)
+                elif kind == "on_tool_start":
+                    tool_name = event['name']
+                    print(f"\n🔧 [Using tool: {tool_name}]")
+                elif kind == "on_tool_end":
+                    tool_name = event['name'] 
+                    print(f"✅ [Tool {tool_name} completed]")
+                    
+            print("\n" + "="*50 + "\n")
+                    
+        except KeyboardInterrupt:
+            print("\n\nGoodbye!")
+            break
+        except Exception as e:
+            print(f"\n❌ Error occurred: {e}")
+            print("Please try again.\n")
 
             
 
 if __name__ == "__main__":
     # Run the main function in an event loop
-   
     asyncio.run(main())
-    
-    
-'''
-
-async def create_graph(firecrawl_session):  # Removed spotify_session
-    llm = ChatOpenAI(model="gpt-4o")
-    
-    firecrawl_tools = await load_mcp_tools(firecrawl_session)
-    
-    # spotify_tools = await load_mcp_tools(spotify_session)
-    
-    tools = firecrawl_tools  # + spotify_tools
-    llm_with_tools = llm.bind_tools(tools)
-    
-    #firecrawl_system_prompt = await load_mcp_prompt(firecrawl_session, "system_prompt")
-    # spotify_system_prompt = await load_mcp_prompt("spotify", "system_prompt")
-    system_prompt = "You are a helpful assistant that can use various tools to answer questions.  \
-                   You can search the web, access a database, and interact with Spotify to find music"
-    
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        MessagesPlaceholder("messages")
-    ])
-    
-    chat_llm = prompt_template | llm_with_tools
-    
-    # State Management
-    class State(TypedDict):
-        messages: Annotated[List[AnyMessage], add_messages]
-        
-    def chat_node(state: State) -> State:
-        state["messages"] = chat_llm.invoke({"messages": state["messages"]})
-        return state
-
-    # Building the graph
-    graph_builder = StateGraph(State)
-    graph_builder.add_node("chat_node", chat_node)
-    graph_builder.add_node("tool_node", ToolNode(tools=tools))
-    graph_builder.add_edge(START, "chat_node")
-    graph_builder.add_conditional_edges("chat_node", tools_condition, {"tools": "tool_node", "__end__": END})
-    graph_builder.add_edge("tool_node", "chat_node")
-    graph = graph_builder.compile(checkpointer=MemorySaver())
-    return graph
-
-
-
-
-
-'''
-'''
-warnings.filterwarnings("ignore", category=ResourceWarning)
-    
-async def run_agent():
-    #get tools from the MCP client
-    tools = await client.get_tools()
-   
-    # Create agent
-    agent = create_react_agent(
-        model=model,
-        tools=tools,
-    )
-    
-    # Invoke agent
-    agent_response = await agent.ainvoke({"messages": "Find 10 songs about the ocean and create a playlist with them."}) 
-    
-    return agent_response
-
-# Test Spotify API access
-def test_spotify_api():
-    client_id = os.getenv("SPOTIFY_CLIENT_ID")
-    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-    redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI")
-
-    # Step 1: Get access token using Client Credentials Flow
-    auth_response = requests.post(
-        "https://accounts.spotify.com/api/token",
-        data={"grant_type": "client_credentials"},
-        auth=(client_id, client_secret),
-    )
-    if auth_response.status_code != 200:
-        print("Failed to get Spotify access token:", auth_response.text)
-        return False
-
-    access_token = auth_response.json().get("access_token")
-    if not access_token:
-        print("No access token received from Spotify.")
-        return False
-    
-    return True
-
-# Run the function
-if __name__ == "__main__":
-    if not test_spotify_api():
-        print("Spotify API test failed. Check your credentials.")
-        exit(1)
-    """
-Using asyncio.get_event_loop() with run_until_complete instead of asyncio.run()
-because stdio_client launches a persistent MCP server subprocess via npx.
-
-This subprocess communicates asynchronously over stdin/stdout pipes and remains
-alive during the client session. A persistent event loop ensures these pipes
-stay open and managed properly throughout the agent's execution.
-
-Using asyncio.run() would create and close the loop automatically, which could
-cause premature termination of the pipes, leading to I/O errors such as:
-'ValueError: I/O operation on closed pipe'.
-
-Maintaining control of the event loop prevents these issues by keeping async I/O
-stable for the full duration of interaction with the MCP subprocess and any
-external API calls it makes (e.g., Brave Search).
-"""
-
-    loop = asyncio.get_event_loop()
-    try:
-        response = loop.run_until_complete(asyncio.wait_for(run_agent(), timeout=120))
-    except TimeoutError:
-        response = "The operation timed out."
-    except Exception as e:
-        traceback.print_exc()
-        response = f"An error occurred: {e}"
-
-    pprint(response)
-
-'''
-
-# TO DO: add brave search api, add logic that tells langgraph to go article by article, scrape with firecrawl article by article, and pass that to the chat node,
-# research adding chunking node
